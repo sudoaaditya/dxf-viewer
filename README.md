@@ -36,6 +36,31 @@ npm run build
 npm run preview
 ```
 
+## Deploy on Vercel
+
+This is a static Vite app. `vercel.json` already sets the framework, build command (`npm run build`), and output folder (`dist`). DXF files are parsed in the browser, so Vercel does not receive or store drawings.
+
+### Git integration
+
+1. Push this repo to GitHub, GitLab, or Bitbucket.
+2. In [Vercel](https://vercel.com/new), import the repository.
+3. Leave the detected Vite settings as they are and deploy.
+
+Later pushes to the production branch publish automatically.
+
+### CLI
+
+```bash
+npm i -g vercel
+vercel
+```
+
+Follow the prompts the first time. For a production deploy:
+
+```bash
+vercel --prod
+```
+
 ## Limits
 
 - ASCII DXF only. Binary DXF is rejected with a clear error.
