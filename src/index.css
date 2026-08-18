@@ -1,0 +1,388 @@
+:root {
+  color-scheme: dark;
+  --bg: #0c0e12;
+  --panel: #13171e;
+  --panel-2: #191e27;
+  --line: #2a3140;
+  --text: #e7edf5;
+  --muted: #8b97a8;
+  --accent: #4ea1ff;
+  --accent-2: #f0a202;
+  --danger: #ff6b6b;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eceff3;
+  --panel: #ffffff;
+  --panel-2: #f5f7fa;
+  --line: #d5dbe6;
+  --text: #1b2430;
+  --muted: #5d6b7c;
+  --shadow: 0 18px 50px rgba(28, 39, 54, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 64px 1fr 32px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, #4ea1ff 0%, #1d6fd1 52%, #f0a202 52%, #f0a202 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.brand-title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.brand-sub {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #071018;
+  font-weight: 600;
+}
+
+.btn.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.btn.icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  min-height: 0;
+  background: #12151b;
+}
+
+:root[data-theme="light"] .workspace {
+  background: #f3f4f1;
+}
+
+.viewer {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  touch-action: none;
+  cursor: grab;
+}
+
+.viewer:active {
+  cursor: grabbing;
+}
+
+.gl-canvas,
+.overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-canvas {
+  pointer-events: none;
+}
+
+.layer-panel {
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border-left: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.panel-head h2,
+.overlay-card h2,
+.hero-card h1 {
+  margin: 0 0 4px;
+}
+
+.panel-head p,
+.overlay-card p,
+.hero-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.search {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.panel-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 16px 12px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-radius: 8px;
+}
+
+.layer-row:hover {
+  background: var(--panel-2);
+}
+
+.layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-count,
+.status-bar {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 16px;
+  overflow: hidden;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.drop-zone {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.drop-zone.over .hero-card {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.hero-card,
+.overlay-card {
+  width: min(680px, 100%);
+  padding: 36px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+
+.hero-kicker {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 22px 0 8px;
+}
+
+.hero-points {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 20px 0 0;
+  color: var(--muted);
+  list-style: none;
+}
+
+.hero-points li::before {
+  content: "▸ ";
+  color: var(--accent);
+}
+
+.overlay {
+  position: absolute;
+  inset: 64px 0 32px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(10px);
+  z-index: 5;
+}
+
+.progress {
+  height: 8px;
+  margin: 18px 0 8px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #7ad0ff);
+}
+
+.progress-label {
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .toolbar {
+    height: auto;
+    padding: 10px 12px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app {
+    grid-template-rows: auto 1fr 32px;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .layer-panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 3;
+  }
+}
