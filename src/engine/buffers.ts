@@ -43,6 +43,28 @@ export class FloatBag {
   }
 }
 
+export class ByteBag {
+  data: Uint8Array;
+  length = 0;
+
+  constructor(capacity = 1024) {
+    this.data = new Uint8Array(capacity);
+  }
+
+  push(value: number) {
+    if (this.length === this.data.length) {
+      const next = new Uint8Array(this.data.length * 2);
+      next.set(this.data);
+      this.data = next;
+    }
+    this.data[this.length++] = value;
+  }
+
+  compact(): Uint8Array {
+    return this.data.slice(0, this.length);
+  }
+}
+
 export type Xform = {
   ox: number;
   oy: number;

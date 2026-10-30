@@ -7,6 +7,7 @@ import type {
   TextEntity,
 } from "../types/dxf";
 import {
+  ByteBag,
   FloatBag,
   composeXform,
   identityXform,
@@ -23,6 +24,7 @@ import {
   tessellateSpline,
   type EmitSeg,
 } from "./tessellate";
+import { buildSegmentIndex } from "./segmentIndex";
 
 type ProgressCb = (p: ParseProgress) => void;
 
@@ -205,7 +207,9 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
 
   let section = "";
   let table = "";
-  const ctx = { currentBlock: null as BlockDef | null };
+  // lwBulges is sparse and indexed by LWPOLYLINE vertex: a 42 belongs to the vertex
+  // before it, and most vertices have none, so a flat 42 list cannot be lined up later.
+  const ctx = { currentBlock: null as BlockDef | null, lwBulges: [] as number[] };
   let entityType = "";
   const groups: GroupMap = new Map();
   let inPolyline = false;
@@ -340,13 +344,11 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
         const verts: Vert[] = [];
         const xs = groups.get(10);
         const ys = groups.get(20);
-        const bulges = groups.get(42);
         if (Array.isArray(xs) && Array.isArray(ys)) {
           const bx = xs as unknown as number[];
           const by = ys as unknown as number[];
-          const bb = Array.isArray(bulges) ? (bulges as unknown as number[]) : [];
           for (let k = 0; k < bx.length; k += 1) {
-            verts.push({ x: bx[k], y: by[k] ?? 0, bulge: bb[k] ?? 0 });
+            verts.push({ x: bx[k], y: by[k] ?? 0, bulge: ctx.lwBulges[k] || 0 });
           }
         }
         const flags = Math.trunc(num(groups, 70));
@@ -523,6 +525,12 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
   };
 
   const pushGroup = (code: number, raw: string) => {
+    if (code === 42 && entityType === "LWPOLYLINE") {
+      const xs = groups.get(10);
+      const vertex = xs === undefined ? -1 : Array.isArray(xs) ? xs.length - 1 : 0;
+      if (vertex >= 0) ctx.lwBulges[vertex] = Number(raw);
+      return;
+    }
     if (
       code === 10 ||
       code === 20 ||
@@ -585,6 +593,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
     }
 
     groups.clear();
+    if (ctx.lwBulges.length) ctx.lwBulges = [];
     entityType = value;
 
     if (value === "SECTION") {
@@ -681,7 +690,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
 
   const layerBags = new Map<
     string,
-    { info: LayerInfo; lines: FloatBag; fills: FloatBag }
+    { info: LayerInfo; lines: FloatBag; kinds: ByteBag; fills: FloatBag }
   >();
 
   const ensureLayer = (name: string) => {
@@ -690,7 +699,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
     if (bag) return bag;
     const info = layers.get(key) ?? { name: key, color: 7, frozen: false, off: false };
     if (!layers.has(key)) layers.set(key, info);
-    bag = { info, lines: new FloatBag(), fills: new FloatBag() };
+    bag = { info, lines: new FloatBag(), kinds: new ByteBag(), fills: new FloatBag() };
     layerBags.set(key, bag);
     return bag;
   };
@@ -711,10 +720,21 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
     if (y > bounds.maxY) bounds.maxY = y;
   };
 
+  // GPU vertices are stored relative to the first finite point so Float32 keeps
+  // sub-unit precision on drawings placed at large survey coordinates.
+  const origin = { x: NaN, y: NaN };
+  const ensureOrigin = (x: number, y: number) => {
+    if (!Number.isNaN(origin.x) || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    origin.x = Math.round(x);
+    origin.y = Math.round(y);
+  };
+
   const emitTo = (layer: string, _entityColor: number, _blockColor: number): EmitSeg => {
     const bag = ensureLayer(layer);
-    return (x1, y1, x2, y2) => {
-      bag.lines.push4(x1, y1, x2, y2);
+    return (x1, y1, x2, y2, straight) => {
+      ensureOrigin(x1, y1);
+      bag.lines.push4(x1 - origin.x, y1 - origin.y, x2 - origin.x, y2 - origin.y);
+      bag.kinds.push(straight ? 1 : 0);
       include(x1, y1);
       include(x2, y2);
     };
@@ -724,10 +744,10 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
     const bag = ensureLayer(layer);
     if (pts.length < 3) return;
     const mapped = pts.map(([x, y]) => {
-      const [px, py] = [x, y];
-      const tx = applyLocal(xf, px, py);
+      const tx = applyLocal(xf, x, y);
       include(tx[0], tx[1]);
-      return tx;
+      ensureOrigin(tx[0], tx[1]);
+      return [tx[0] - origin.x, tx[1] - origin.y];
     });
     const a = mapped[0];
     const b = mapped[1];
@@ -837,6 +857,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
   let fills = 0;
   for (const bag of layerBags.values()) {
     const vertices = bag.lines.compact();
+    const kinds = bag.kinds.compact();
     const fillVerts = bag.fills.compact();
     const segmentCount = vertices.length / 4;
     const fillCount = fillVerts.length / 6;
@@ -850,6 +871,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
       frozen: bag.info.frozen,
       off: bag.info.off,
       vertices,
+      kinds,
       fills: fillVerts,
       segmentCount,
       fillCount,
@@ -858,12 +880,17 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
 
   layerList.sort((a, b) => a.name.localeCompare(b.name));
 
-  report("geometry", 1, "Ready");
+  report("index", 0.97, `Indexing ${segments.toLocaleString()} segments…`);
+  const index = buildSegmentIndex(layerList);
+
+  report("index", 1, "Ready");
 
   return {
     fileName,
     fileBytes,
     bounds,
+    origin: Number.isNaN(origin.x) ? { x: 0, y: 0 } : origin,
+    index,
     layers: layerList,
     texts,
     units,

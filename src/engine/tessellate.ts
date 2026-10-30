@@ -1,6 +1,6 @@
 import { applyXform, type Xform } from "./buffers";
 
-export type EmitSeg = (x1: number, y1: number, x2: number, y2: number) => void;
+export type EmitSeg = (x1: number, y1: number, x2: number, y2: number, straight?: boolean) => void;
 
 function emitXf(
   emit: EmitSeg,
@@ -9,10 +9,11 @@ function emitXf(
   y1: number,
   x2: number,
   y2: number,
+  straight = false,
 ) {
   const a = applyXform(xf, x1, y1);
   const b = applyXform(xf, x2, y2);
-  emit(a[0], a[1], b[0], b[1]);
+  emit(a[0], a[1], b[0], b[1], straight);
 }
 
 export function tessellateLine(
@@ -23,7 +24,7 @@ export function tessellateLine(
   x2: number,
   y2: number,
 ) {
-  emitXf(emit, xf, x1, y1, x2, y2);
+  emitXf(emit, xf, x1, y1, x2, y2, true);
 }
 
 export function tessellateCircle(
@@ -121,7 +122,7 @@ export function tessellateBulge(
   bulge: number,
 ) {
   if (Math.abs(bulge) < 1e-10) {
-    emitXf(emit, xf, x1, y1, x2, y2);
+    emitXf(emit, xf, x1, y1, x2, y2, true);
     return;
   }
   const dx = x2 - x1;

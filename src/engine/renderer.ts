@@ -1,5 +1,5 @@
 import { displayRgb } from "../lib/aciColors";
-import type { CameraState, ParsedDrawing } from "../types/dxf";
+import type { CameraState, ParsedDrawing, Rgb } from "../types/dxf";
 
 const LINE_VS = `
 attribute vec2 a_pos;
@@ -75,7 +75,9 @@ export class DxfGlRenderer {
   private lineProg: WebGLProgram;
   private fillProg: WebGLProgram;
   private layers: GpuLayer[] = [];
+  private origin = { x: 0, y: 0 };
   private dark = true;
+  private background: Rgb | null = null;
   private width = 1;
   private height = 1;
 
@@ -94,8 +96,10 @@ export class DxfGlRenderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
-  setTheme(dark: boolean) {
+  /** `dark` picks contrasting linework; `background` overrides the theme's clear color. */
+  setTheme(dark: boolean, background: Rgb | null = null) {
     this.dark = dark;
+    this.background = background;
   }
 
   resize(cssWidth: number, cssHeight: number, dpr: number) {
@@ -119,6 +123,7 @@ export class DxfGlRenderer {
     }
     this.layers = [];
     if (!drawing) return;
+    this.origin = drawing.origin;
 
     for (const layer of drawing.layers) {
       const gpu: GpuLayer = {
@@ -153,7 +158,11 @@ export class DxfGlRenderer {
 
   render(camera: CameraState) {
     const gl = this.gl;
-    const bg = this.dark ? [0.07, 0.08, 0.1] : [0.96, 0.96, 0.94];
+    const bg = this.background
+      ? this.background.map((c) => c / 255)
+      : this.dark
+        ? [0.07, 0.08, 0.1]
+        : [0.96, 0.96, 0.94];
     gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -165,7 +174,7 @@ export class DxfGlRenderer {
     const gl = this.gl;
     gl.useProgram(prog);
     gl.uniform2f(gl.getUniformLocation(prog, "u_resolution"), this.width, this.height);
-    gl.uniform2f(gl.getUniformLocation(prog, "u_center"), camera.x, camera.y);
+    gl.uniform2f(gl.getUniformLocation(prog, "u_center"), camera.x - this.origin.x, camera.y - this.origin.y);
     gl.uniform1f(gl.getUniformLocation(prog, "u_zoom"), camera.zoom);
 
     const loc = gl.getAttribLocation(prog, "a_pos");

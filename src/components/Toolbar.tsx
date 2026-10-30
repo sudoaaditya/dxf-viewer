@@ -7,6 +7,7 @@ import {
   IconOpen,
   IconPlus,
   IconRuler,
+  IconSliders,
   IconSun,
 } from "./Icons";
 
@@ -15,12 +16,14 @@ type ToolbarProps = {
   dark: boolean;
   measuring: boolean;
   layersOpen: boolean;
+  settingsOpen: boolean;
   hasDrawing: boolean;
   onOpen: () => void;
   onFit: () => void;
   onZoom: (factor: number) => void;
   onToggleMeasure: () => void;
   onToggleLayers: () => void;
+  onToggleSettings: () => void;
   onToggleTheme: () => void;
   onExport: () => void;
   onClose?: () => void;
@@ -31,12 +34,14 @@ export function Toolbar({
   dark,
   measuring,
   layersOpen,
+  settingsOpen,
   hasDrawing,
   onOpen,
   onFit,
   onZoom,
   onToggleMeasure,
   onToggleLayers,
+  onToggleSettings,
   onToggleTheme,
   onExport,
   onClose,
@@ -85,6 +90,17 @@ export function Toolbar({
         >
           <IconLayers />
           Layers
+        </button>
+        <button
+          type="button"
+          className={`btn icon ${settingsOpen ? "active" : ""}`}
+          onClick={onToggleSettings}
+          title="View settings"
+          aria-label="View settings"
+          aria-expanded={settingsOpen}
+          data-settings-toggle
+        >
+          <IconSliders />
         </button>
         <button type="button" className="btn icon" onClick={onToggleTheme} title="Toggle theme">
           {dark ? <IconSun /> : <IconMoon />}

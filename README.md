@@ -2,7 +2,7 @@
 
 **Live demo:** [https://dxf-viewer-one.vercel.app/](https://dxf-viewer-one.vercel.app/)
 
-A React + Vite app for opening AutoCAD DXF files entirely in the browser. Files stay on your device. The viewer is built for large drawings, up to **100 MB**.
+A React + Vite app for opening AutoCAD DXF files entirely in the browser. Files stay on your device. The viewer is built for large drawings, up to **500 MB**.
 
 ## Why it stays responsive on big files
 

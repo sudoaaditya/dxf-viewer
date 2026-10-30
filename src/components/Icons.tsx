@@ -85,3 +85,13 @@ export function IconClose({ size = 16 }: IconProps) {
     </svg>
   );
 }
+
+export function IconSliders({ size = 16 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="15" cy="7" r="2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="9" cy="17" r="2" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  );
+}

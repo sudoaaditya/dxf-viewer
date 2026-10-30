@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { generateSampleDxf } from "../lib/sampleDxf";
-import { MAX_FILE_BYTES } from "../types/dxf";
+import { MAX_FILE_BYTES, MAX_FILE_MB } from "../types/dxf";
 import type { ParsedDrawing, WorkerRequest, WorkerResponse } from "../types/dxf";
 
 export type LoadPhase =
@@ -24,24 +24,20 @@ async function readFileBuffer(
     return file.arrayBuffer();
   }
 
+  // Stream straight into one allocation: holding chunks and then merging them
+  // would need twice the file size in memory, which hurts at hundreds of MB.
   const reader = file.stream().getReader();
-  const chunks: Uint8Array[] = [];
+  const out = new Uint8Array(file.size);
   let received = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (received + value.byteLength > out.length) throw new Error("The file changed while it was being read.");
+    out.set(value, received);
     received += value.byteLength;
     onProgress(received / file.size);
   }
-
-  const merged = new Uint8Array(received);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return merged.buffer;
+  return received === out.length ? out.buffer : out.slice(0, received).buffer;
 }
 
 export function useDxfLoader() {
@@ -54,8 +50,9 @@ export function useDxfLoader() {
     workerRef.current = null;
   };
 
-  const loadBuffer = useCallback(async (buffer: ArrayBuffer, fileName: string, fileBytes: number) => {
-    const requestId = ++requestRef.current;
+  // Runs under the caller's request id: taking a new one here would make loadFile's
+  // catch treat worker errors as stale and leave the loading overlay up forever.
+  const loadBuffer = useCallback(async (buffer: ArrayBuffer, fileName: string, fileBytes: number, requestId: number) => {
     terminateWorker();
 
     const worker = new Worker(new URL("../workers/parseDxf.worker.ts", import.meta.url), {
@@ -108,7 +105,7 @@ export function useDxfLoader() {
       if (file.size > MAX_FILE_BYTES) {
         setPhase({
           status: "error",
-          message: `This file is ${(file.size / (1024 * 1024)).toFixed(1)} MB. The viewer accepts files up to 100 MB.`,
+          message: `This file is ${(file.size / (1024 * 1024)).toFixed(1)} MB. The viewer accepts files up to ${MAX_FILE_MB} MB.`,
           fileName: file.name,
         });
         return;
@@ -139,7 +136,7 @@ export function useDxfLoader() {
           });
         });
         if (requestId !== requestRef.current) return;
-        await loadBuffer(buffer, file.name, file.size);
+        await loadBuffer(buffer, file.name, file.size, requestId);
       } catch (error) {
         if (requestId !== requestRef.current) return;
         setPhase({

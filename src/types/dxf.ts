@@ -1,4 +1,5 @@
-export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+export const MAX_FILE_MB = 500;
+export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 export type Rgb = [number, number, number];
 
@@ -9,7 +10,10 @@ export type LayerGeometry = {
   visible: boolean;
   frozen: boolean;
   off: boolean;
+  /** Segment endpoints relative to `ParsedDrawing.origin`. */
   vertices: Float32Array;
+  /** One byte per segment: 1 = straight (LINE, polyline edge), 0 = tessellated curve. */
+  kinds: Uint8Array;
   fills: Float32Array;
   segmentCount: number;
   fillCount: number;
@@ -44,10 +48,28 @@ export type DrawingBounds = {
   maxY: number;
 };
 
+/** Uniform grid over all segments, in origin-relative coordinates. */
+export type SegmentIndex = {
+  minX: number;
+  minY: number;
+  cellSize: number;
+  cols: number;
+  rows: number;
+  /** Prefix offsets into `items`, length cols * rows + 1. */
+  cellStart: Uint32Array;
+  /** Global segment ids (layerStart[layer] + segment). */
+  items: Uint32Array;
+  /** Global id of each layer's first segment, length layers + 1. */
+  layerStart: Uint32Array;
+};
+
 export type ParsedDrawing = {
   fileName: string;
   fileBytes: number;
   bounds: DrawingBounds;
+  /** World offset subtracted from GPU vertices to keep Float32 precision on large coordinates. */
+  origin: { x: number; y: number };
+  index: SegmentIndex;
   layers: LayerGeometry[];
   texts: TextEntity[];
   stats: DrawingStats;
@@ -55,7 +77,7 @@ export type ParsedDrawing = {
 };
 
 export type ParseProgress = {
-  stage: "decode" | "parse" | "geometry";
+  stage: "decode" | "parse" | "geometry" | "index";
   progress: number;
   message: string;
 };

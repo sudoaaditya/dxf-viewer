@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MAX_FILE_MB } from "../types/dxf";
 
 type DropZoneProps = {
   onFile: (file: File) => void;
@@ -27,7 +28,7 @@ export function DropZone({ onFile, onSample }: DropZoneProps) {
         <div className="hero-kicker">In-browser CAD preview</div>
         <h1>Open large DXF drawings without uploading them.</h1>
         <p>
-          Drop an ASCII DXF file up to 100 MB. Parsing runs in a Web Worker, geometry is packed into typed
+          Drop an ASCII DXF file up to {MAX_FILE_MB} MB. Parsing runs in a Web Worker, geometry is packed into typed
           arrays, and WebGL draws the result. The file never leaves this device.
         </p>
         <div className="hero-actions">
@@ -49,7 +50,7 @@ export function DropZone({ onFile, onSample }: DropZoneProps) {
           </button>
         </div>
         <ul className="hero-points">
-          <li>100 MB file cap with streamed reads</li>
+          <li>{MAX_FILE_MB} MB file cap with streamed reads</li>
           <li>Layer visibility, measure, PNG export</li>
           <li>No server, no account, no cloud copy</li>
         </ul>

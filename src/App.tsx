@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DropZone } from "./components/DropZone";
 import { LayerPanel } from "./components/LayerPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { StatusBar } from "./components/StatusBar";
 import { Toolbar } from "./components/Toolbar";
 import { ViewerCanvas } from "./components/ViewerCanvas";
 import { useDxfLoader } from "./hooks/useDxfLoader";
 import { fitCamera, zoomAt, zoomLimits } from "./lib/camera";
+import { unitFormat } from "./lib/units";
+import { hexToRgb, loadViewSettings, saveViewSettings, type ViewSettings } from "./lib/viewSettings";
 import type { CameraState, MeasureState } from "./types/dxf";
 
 const fileInputId = "dxf-file-input";
@@ -15,12 +18,22 @@ export default function App() {
   const { phase, loadFile, loadSample, cancel, reset } = useDxfLoader();
   const [dark, setDark] = useState(true);
   const [layersOpen, setLayersOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<ViewSettings>(loadViewSettings);
+  const [drawingUnits, setDrawingUnits] = useState(0);
   const [camera, setCamera] = useState<CameraState>({ x: 0, y: 0, zoom: 1 });
   const [measure, setMeasure] = useState<MeasureState>({ mode: "off" });
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const exportRef = useRef<(() => void) | null>(null);
   const drawing = phase.status === "ready" ? phase.drawing : undefined;
+  const units = useMemo(() => unitFormat(settings, drawingUnits), [settings, drawingUnits]);
+  const background = useMemo(() => (settings.background ? hexToRgb(settings.background) : null), [settings.background]);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  useEffect(() => {
+    saveViewSettings(settings);
+  }, [settings]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -36,6 +49,7 @@ export default function App() {
     for (const layer of drawing.layers) next[layer.name] = layer.visible;
     setVisibility(next);
     setLayersOpen(true);
+    setDrawingUnits(drawing.units);
   }, [drawing]);
 
   const openPicker = () => {
@@ -98,12 +112,14 @@ export default function App() {
         dark={dark}
         measuring={measure.mode !== "off"}
         layersOpen={layersOpen}
+        settingsOpen={settingsOpen}
         hasDrawing={hasDrawing}
         onOpen={openPicker}
         onFit={fit}
         onZoom={zoomBy}
         onToggleMeasure={() => setMeasure((current) => (current.mode === "off" ? { mode: "waiting" } : { mode: "off" }))}
         onToggleLayers={() => setLayersOpen((open) => !open)}
+        onToggleSettings={() => setSettingsOpen((open) => !open)}
         onToggleTheme={() => setDark((value) => !value)}
         onExport={() => exportRef.current?.()}
         onClose={reset}
@@ -138,6 +154,8 @@ export default function App() {
               onCameraChange={setCamera}
               visibility={visibility}
               dark={dark}
+              background={background}
+              units={units}
               measure={measure}
               onMeasureChange={setMeasure}
               cursor={cursor}
@@ -161,9 +179,19 @@ export default function App() {
         ) : (
           <DropZone onFile={(file) => void loadFile(file)} onSample={() => void loadSample()} />
         )}
+        {settingsOpen ? (
+          <SettingsPanel
+            settings={settings}
+            onChange={setSettings}
+            drawingUnits={drawing ? drawingUnits : undefined}
+            fileUnits={drawing?.units}
+            onDrawingUnits={setDrawingUnits}
+            onClose={closeSettings}
+          />
+        ) : null}
       </div>
 
-      <StatusBar drawing={drawing} world={cursor} zoom={drawing ? camera.zoom : undefined} measure={measure} />
+      <StatusBar drawing={drawing} units={units} world={cursor} zoom={drawing ? camera.zoom : undefined} measure={measure} />
 
       {phase.status === "loading" ? (
         <LoadingOverlay
