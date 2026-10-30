@@ -147,6 +147,9 @@ input {
   position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
+  /* Pin the row to the available height; an auto row grows with a long layer list
+     and pushes the viewer, its segment card and the status bar off-screen. */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   background: #12151b;
 }
@@ -374,6 +377,7 @@ input {
 
 .layer-panel {
   width: 300px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -426,6 +430,8 @@ input {
 }
 
 .layer-list {
+  flex: 1;
+  min-height: 0;
   list-style: none;
   margin: 0;
   padding: 0;

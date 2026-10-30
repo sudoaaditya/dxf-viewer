@@ -8,3 +8,4 @@ dist-ssr
 .idea
 .vercel
 .cursor
+.env*
