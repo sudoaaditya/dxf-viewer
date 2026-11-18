@@ -5,7 +5,7 @@ import type { UnitFormat } from "../lib/units";
 import { isDarkColor } from "../lib/viewSettings";
 import { DxfGlRenderer } from "../engine/renderer";
 import { findSnap, pickSegment, type SegmentHit, type SnapPoint } from "../engine/segmentIndex";
-import type { CameraState, MeasureState, ParsedDrawing, Rgb } from "../types/dxf";
+import type { CameraState, MeasureState, ParsedDrawing, Rgb, TextEntity } from "../types/dxf";
 
 /** Pick tolerances in CSS pixels. */
 const HOVER_PX = 6;
@@ -13,6 +13,80 @@ const TOUCH_PX = 14;
 const SNAP_PX = 12;
 const HIGHLIGHT = "#4ea1ff";
 const MEASURE = "#f0a202";
+
+/** AutoCAD text height is cap height; Arial's cap height is 0.716 of its em size. */
+const CAP_RATIO = 0.716;
+const DESCENT_RATIO = 0.21;
+const TEXT_FONT = "Arial, Helvetica, sans-serif";
+const MIN_CAP_PX = 4;
+
+let measureCtx: CanvasRenderingContext2D | null = null;
+const wrapCache = new WeakMap<TextEntity, string[]>();
+
+/**
+ * MTEXT lines after word wrap to the reference width. Measured once at a fixed font
+ * size: metrics scale linearly, so the wrap is the same at every zoom.
+ */
+function layoutLines(text: TextEntity): string[] {
+  if (!(text.width > 0) || !(text.height > 0)) return text.lines;
+  const cached = wrapCache.get(text);
+  if (cached) return cached;
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return text.lines;
+  const ref = 100;
+  measureCtx.font = `${ref}px ${TEXT_FONT}`;
+  const limit = (text.width / text.height) * CAP_RATIO * ref;
+  const out: string[] = [];
+  for (const paragraph of text.lines) {
+    let line = "";
+    for (const word of paragraph.split(" ")) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && measureCtx.measureText(next).width > limit) {
+        out.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    out.push(line);
+  }
+  wrapCache.set(text, out);
+  return out;
+}
+
+function drawText(ctx: CanvasRenderingContext2D, text: TextEntity, cam: CameraState, w: number, h: number, color: string) {
+  const cap = text.height * cam.zoom;
+  if (cap < MIN_CAP_PX) return;
+  const lines = layoutLines(text);
+  const fontPx = cap / CAP_RATIO;
+  const gap = text.lineSpacing * cam.zoom;
+  const p = worldToScreen(text.x, text.y, cam, w, h);
+  let longest = 0;
+  for (const line of lines) longest = Math.max(longest, line.length);
+  const reach = Math.max(longest * fontPx * 0.7, lines.length * gap) + fontPx;
+  if (p.x < -reach || p.y < -reach || p.x > w + reach || p.y > h + reach) return;
+
+  // Baseline of the first line, downward from the anchor in text space.
+  const last = (lines.length - 1) * gap;
+  const first =
+    text.valign === "top"
+      ? cap
+      : text.valign === "middle"
+        ? (cap - last) / 2
+        : text.valign === "bottom"
+          ? -last - fontPx * DESCENT_RATIO
+          : 0;
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate((-text.rotation * Math.PI) / 180);
+  ctx.font = `${fontPx}px ${TEXT_FONT}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = text.align;
+  ctx.textBaseline = "alphabetic";
+  for (let i = 0; i < lines.length; i += 1) ctx.fillText(lines[i], 0, first + i * gap);
+  ctx.restore();
+}
 
 function sameSegment(a: SegmentHit | null, b: SegmentHit | null): boolean {
   return a === b || (!!a && !!b && a.layer === b.layer && a.segment === b.segment);
@@ -203,17 +277,7 @@ export function ViewerCanvas({
 
     for (const text of drawing.texts) {
       if (visibility[text.layer] === false) continue;
-      const heightPx = text.height * cam.zoom;
-      if (heightPx < 6 || heightPx > 160) continue;
-      const p = worldToScreen(text.x, text.y, cam, w, h);
-      if (p.x < -200 || p.y < -80 || p.x > w + 200 || p.y > h + 80) continue;
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate((-text.rotation * Math.PI) / 180);
-      ctx.fillStyle = rgbCss(displayRgb(text.color, dark));
-      ctx.font = `${Math.max(8, heightPx)}px IBM Plex Sans, ui-sans-serif, system-ui`;
-      ctx.fillText(text.value, 0, 0);
-      ctx.restore();
+      drawText(ctx, text, cam, w, h, rgbCss(displayRgb(text.color, dark)));
     }
 
     const sel = forExport ? null : selectedRef.current;

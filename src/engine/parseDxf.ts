@@ -5,7 +5,9 @@ import type {
   ParseProgress,
   ParsedDrawing,
   TextEntity,
+  TextLayout,
 } from "../types/dxf";
+import { decodeText, parseMtext } from "./mtext";
 import {
   ByteBag,
   FloatBag,
@@ -82,7 +84,7 @@ type RawEntity =
       sy: number;
       rot: number;
     }
-  | {
+  | ({
       t: "TEXT";
       layer: string;
       color: number;
@@ -90,8 +92,7 @@ type RawEntity =
       y: number;
       height: number;
       rotation: number;
-      value: string;
-    };
+    } & TextLayout);
 
 type BlockDef = {
   name: string;
@@ -173,14 +174,11 @@ function resolveColor(entityColor: number, layerColor: number, blockColor: numbe
   return entityColor;
 }
 
-function cleanMtext(value: string): string {
-  return value
-    .replace(/\\P/g, "\n")
-    .replace(/\\[A-Za-z][^;\\]*;?/g, "")
-    .replace(/[{}]/g, "")
-    .replace(/%%[cCdDoO]/g, "")
-    .trim();
-}
+/** AutoCAD's default line pitch: baselines 5/3 of the text height apart. */
+const LINE_PITCH = 5 / 3;
+
+const MTEXT_ALIGN = ["left", "center", "right"] as const;
+const MTEXT_VALIGN = ["top", "middle", "bottom"] as const;
 
 export function parseDxf(text: string, fileName: string, fileBytes: number, onProgress?: ProgressCb): ParsedDrawing {
   const started = performance.now();
@@ -209,7 +207,8 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
   let table = "";
   // lwBulges is sparse and indexed by LWPOLYLINE vertex: a 42 belongs to the vertex
   // before it, and most vertices have none, so a flat 42 list cannot be lined up later.
-  const ctx = { currentBlock: null as BlockDef | null, lwBulges: [] as number[] };
+  // mtextChunks collects MTEXT group 3: text longer than 250 chars arrives in several chunks before group 1.
+  const ctx = { currentBlock: null as BlockDef | null, lwBulges: [] as number[], mtextChunks: "" };
   let entityType = "";
   const groups: GroupMap = new Map();
   let inPolyline = false;
@@ -425,32 +424,63 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
         break;
       case "TEXT":
       case "ATTRIB":
-      case "ATTDEF":
+      case "ATTDEF": {
+        // Invisible attributes (70 bit 1) are hidden; ATTDEFs inside blocks are templates, not drawn.
+        if (type !== "TEXT" && (Math.trunc(num(groups, 70)) & 1) === 1) break;
+        if (type === "ATTDEF" && ctx.currentBlock) break;
+        const height = num(groups, 40, 1);
+        const h = Math.trunc(num(groups, 72));
+        const v = Math.trunc(num(groups, type === "TEXT" ? 73 : 74));
+        // 72/73 = 0 anchors on the first point (10); any other alignment uses the second (11).
+        const aligned = (h !== 0 || v !== 0) && groups.has(11);
+        let x = aligned ? num(groups, 11) : num(groups, 10);
+        let y = aligned ? num(groups, 21) : num(groups, 20);
+        if (aligned && (h === 3 || h === 5)) {
+          // Aligned / fit: text spans 10 → 11; draw centred between them.
+          x = (num(groups, 10) + x) / 2;
+          y = (num(groups, 20) + y) / 2;
+        }
         target().push({
           t: "TEXT",
           layer,
           color,
-          x: num(groups, 11) || num(groups, 10),
-          y: num(groups, 21) || num(groups, 20),
-          height: num(groups, 40, 1),
+          x,
+          y,
+          height,
           rotation: num(groups, 50),
-          value: str(groups, 1),
+          lines: [decodeText(str(groups, type === "ATTDEF" ? 2 : 1))],
+          align: h === 0 ? "left" : h === 2 ? "right" : "center",
+          valign: h === 4 || v === 2 ? "middle" : v === 1 ? "bottom" : v === 3 ? "top" : "baseline",
+          lineSpacing: height * LINE_PITCH,
+          width: 0,
         });
-        bump("TEXT");
+        bump(type);
         break;
-      case "MTEXT":
+      }
+      case "MTEXT": {
+        const height = num(groups, 40, 1);
+        const attach = Math.min(9, Math.max(1, Math.trunc(num(groups, 71, 1)))) - 1;
+        // A direction vector (11/21) overrides the rotation angle when present.
+        const rotation = groups.has(11)
+          ? (Math.atan2(num(groups, 21), num(groups, 11)) * 180) / Math.PI
+          : num(groups, 50);
         target().push({
           t: "TEXT",
           layer,
           color,
           x: num(groups, 10),
           y: num(groups, 20),
-          height: num(groups, 40, 1),
-          rotation: num(groups, 50),
-          value: cleanMtext(str(groups, 3) + str(groups, 1)),
+          height,
+          rotation,
+          lines: parseMtext(ctx.mtextChunks + str(groups, 1)),
+          align: MTEXT_ALIGN[attach % 3],
+          valign: MTEXT_VALIGN[Math.floor(attach / 3)],
+          lineSpacing: height * LINE_PITCH * (num(groups, 44, 1) || 1),
+          width: Math.max(0, num(groups, 41)),
         });
         bump("MTEXT");
         break;
+      }
       case "DIMENSION":
       case "ARC_DIMENSION":
       case "LARGE_RADIAL_DIMENSION": {
@@ -525,6 +555,10 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
   };
 
   const pushGroup = (code: number, raw: string) => {
+    if (code === 3 && entityType === "MTEXT") {
+      ctx.mtextChunks += raw;
+      return;
+    }
     if (code === 42 && entityType === "LWPOLYLINE") {
       const xs = groups.get(10);
       const vertex = xs === undefined ? -1 : Array.isArray(xs) ? xs.length - 1 : 0;
@@ -594,6 +628,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
 
     groups.clear();
     if (ctx.lwBulges.length) ctx.lwBulges = [];
+    ctx.mtextChunks = "";
     entityType = value;
 
     if (value === "SECTION") {
@@ -803,12 +838,17 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
         const [x, y] = applyLocal(xf, ent.x, ent.y);
         const rot =
           ent.rotation + (Math.atan2(xf.sin, xf.cos) * 180) / Math.PI;
+        const scale = Math.abs(xf.sx);
         texts.push({
           x,
           y,
-          height: ent.height * Math.abs(xf.sx),
+          height: ent.height * scale,
           rotation: rot,
-          value: ent.value,
+          lines: ent.lines,
+          align: ent.align,
+          valign: ent.valign,
+          lineSpacing: ent.lineSpacing * scale,
+          width: ent.width * scale,
           layer: ent.layer,
           color: resolveColor(ent.color, ensureLayer(ent.layer).info.color, blockColor),
         });

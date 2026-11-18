@@ -84,7 +84,9 @@ Config: `vite.config.ts`, `vercel.json`, `package.json`. Styles: `src/index.css`
 
 ## Supported vs approximate
 
-**Drawn well:** LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE (bulge), POLYLINE/VERTEX, POINT, SOLID/TRACE/3DFACE, INSERT/BLOCKS, TEXT, MTEXT (formatting stripped).
+**Drawn well:** LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE (bulge), POLYLINE/VERTEX, POINT, SOLID/TRACE/3DFACE, INSERT/BLOCKS, TEXT/ATTRIB (72/73 alignment), MTEXT.
+
+Text: `src/engine/mtext.ts` decodes MTEXT (`\P` line breaks, `\S` stacks, `\U+`, `%%c/d/p`; inline font/height/color codes are dropped) and joins group-3 chunks. Each TextEntity carries lines, align/valign (MTEXT 71 attachment or TEXT 72/73), line spacing (5/3 × height × MTEXT 44) and wrap width (MTEXT 41). The overlay draws height as cap height in Arial (`CAP_RATIO`), wraps once per entity (cached), and skips text under 4 px cap height. Not handled: per-run font/height/color changes, STYLE width factors, mirrored text.
 
 **Approximate:** SPLINE (fit points or simple Bezier), HATCH (polyline outline if 10/20 pairs exist), DIMENSION (definition points as lines), LEADER vertices.
 

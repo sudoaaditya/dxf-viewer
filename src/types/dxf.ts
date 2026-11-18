@@ -19,12 +19,25 @@ export type LayerGeometry = {
   fillCount: number;
 };
 
-export type TextEntity = {
+export type TextLayout = {
+  /** One entry per MTEXT paragraph; word wrap to `width` happens at draw time. */
+  lines: string[];
+  /** Horizontal position of each line relative to the anchor. */
+  align: "left" | "center" | "right";
+  /** Which part of the text block sits on the anchor. */
+  valign: "baseline" | "bottom" | "middle" | "top";
+  /** Baseline-to-baseline distance, world units. */
+  lineSpacing: number;
+  /** MTEXT reference width for word wrap, world units; 0 = no wrap. */
+  width: number;
+};
+
+export type TextEntity = TextLayout & {
   x: number;
   y: number;
+  /** Cap height in world units (AutoCAD's text height). */
   height: number;
   rotation: number;
-  value: string;
   layer: string;
   color: number;
 };
