@@ -470,6 +470,8 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
       }
       case "MTEXT": {
         const height = num(groups, 40, 1);
+        const style = textStyle();
+        const content = parseMtext(ctx.mtextChunks + str(groups, 1), height, style.widthFactor);
         const attach = Math.min(9, Math.max(1, Math.trunc(num(groups, 71, 1)))) - 1;
         // A direction vector (11/21) overrides the rotation angle when present.
         const rotation = groups.has(11)
@@ -483,8 +485,9 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           y: num(groups, 20),
           height,
           rotation,
-          ...textStyle(),
-          lines: parseMtext(ctx.mtextChunks + str(groups, 1)),
+          ...style,
+          lines: content.lines,
+          ...(content.runs ? { runs: content.runs } : {}),
           align: MTEXT_ALIGN[attach % 3],
           valign: MTEXT_VALIGN[Math.floor(attach / 3)],
           lineSpacing: height * LINE_PITCH * (num(groups, 44, 1) || 1),
@@ -871,6 +874,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           widthFactor: ent.widthFactor,
           oblique: ent.oblique,
           lines: ent.lines,
+          runs: ent.runs,
           align: ent.align,
           valign: ent.valign,
           lineSpacing: ent.lineSpacing * scale,

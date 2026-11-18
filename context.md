@@ -60,6 +60,7 @@ src/
     camera.ts             # Fit, zoom-at-cursor, world ↔ screen
     aciColors.ts          # AutoCAD index colors
     units.ts              # INSUNITS labels, byte/count format, metric/imperial conversion (unitFormat)
+    drawText.ts           # TEXT/MTEXT layout (wrap, runs, attachment) and overlay drawing
     viewSettings.ts       # View settings (units, background) + localStorage persistence
     sampleDxf.ts          # Generated campus site plan
   components/
@@ -86,7 +87,7 @@ Config: `vite.config.ts`, `vercel.json`, `package.json`. Styles: `src/index.css`
 
 **Drawn well:** LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE (bulge), POLYLINE/VERTEX, POINT, SOLID/TRACE/3DFACE, INSERT/BLOCKS, TEXT/ATTRIB (72/73 alignment), MTEXT.
 
-Text: `src/engine/mtext.ts` decodes MTEXT (`\P` line breaks, `\S` stacks, `\U+`, `%%c/d/p`; inline font/height/color codes are dropped) and joins group-3 chunks. Each TextEntity carries lines, align/valign (MTEXT 71 attachment or TEXT 72/73), line spacing (5/3 × height × MTEXT 44) and wrap width (MTEXT 41). Fonts come from the STYLE table (`src/engine/textStyle.ts`): XDATA family name and bold/italic flags first, then known TrueType file names (arial.ttf, arialn.ttf, times.ttf…), then the .ttf base name; SHX fonts and anything the browser lacks fall back to Arial. Style width factor (41) and oblique angle (50) apply, with TEXT 41/51 overriding them. The overlay draws height as the font's measured cap height, wraps once per entity (cached), and skips text under 4 px cap height. Not handled: inline MTEXT runs that change font/height/color/width mid-text (`\f`, `\H`, `\C`, `\W` are dropped), mirrored text.
+Text: `src/engine/mtext.ts` decodes MTEXT (`\P` line breaks, `\S` stacks, `\U+`, `%%c/d/p`) and joins group-3 chunks. Each TextEntity carries lines, align/valign (MTEXT 71 attachment or TEXT 72/73), line spacing (5/3 × height × MTEXT 44) and wrap width (MTEXT 41). Fonts come from the STYLE table (`src/engine/textStyle.ts`): XDATA family name and bold/italic flags first, then known TrueType file names (arial.ttf, arialn.ttf, times.ttf…), then the .ttf base name; SHX fonts and anything the browser lacks fall back to Arial. Style width factor (41) and oblique angle (50) apply, with TEXT 41/51 overriding them. MTEXT inline formatting becomes `runs` (only when present): `\f`/`\F` font + bold/italic flags, `\H` height (absolute or `x` relative), `\W` width, `\Q` slant, `\C` ACI and `\c` true color, `\L`/`\O`/`\K` underline/overline/strike, scoped by `{ }`. `src/lib/drawText.ts` lays each entity out once in layout units (word wrap across runs, line height from the tallest run, baselines for the attachment point), caches it, and draws per piece; height is the font's measured cap height, and text under 4 px cap height is skipped. Not handled: `\A` per-run vertical alignment, `\T` tracking, paragraph indents/tabs (`\p`), mirrored text.
 
 **Approximate:** SPLINE (fit points or simple Bezier), HATCH (polyline outline if 10/20 pairs exist), DIMENSION (definition points as lines), LEADER vertices.
 

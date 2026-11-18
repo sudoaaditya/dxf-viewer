@@ -5,7 +5,8 @@ import type { UnitFormat } from "../lib/units";
 import { isDarkColor } from "../lib/viewSettings";
 import { DxfGlRenderer } from "../engine/renderer";
 import { findSnap, pickSegment, type SegmentHit, type SnapPoint } from "../engine/segmentIndex";
-import type { CameraState, MeasureState, ParsedDrawing, Rgb, TextEntity } from "../types/dxf";
+import { drawText } from "../lib/drawText";
+import type { CameraState, MeasureState, ParsedDrawing, Rgb, TextRun } from "../types/dxf";
 
 /** Pick tolerances in CSS pixels. */
 const HOVER_PX = 6;
@@ -14,105 +15,17 @@ const SNAP_PX = 12;
 const HIGHLIGHT = "#4ea1ff";
 const MEASURE = "#f0a202";
 
-/** AutoCAD text height is cap height. Arial's cap height is 0.716 em; other fonts are measured. */
-const ARIAL_CAP_RATIO = 0.716;
-const DESCENT_RATIO = 0.21;
-const MIN_CAP_PX = 4;
-const MEASURE_PX = 100;
-
-let measureCtx: CanvasRenderingContext2D | null = null;
-const wrapCache = new WeakMap<TextEntity, string[]>();
-const capCache = new Map<string, number>();
-
-function measurer(): CanvasRenderingContext2D | null {
-  measureCtx ??= document.createElement("canvas").getContext("2d");
-  return measureCtx;
-}
-
-/** CSS font shorthand for a text entity at `px` size. */
-function cssFont(text: TextEntity, px: number): string {
-  return `${text.italic ? "italic " : ""}${text.bold ? "bold " : ""}${px}px ${text.fontFamily}`;
-}
-
-/** Cap height / em for the entity's font, so `height` maps to capital-letter height in any font. */
-function capRatio(text: TextEntity): number {
-  const key = cssFont(text, MEASURE_PX);
-  let ratio = capCache.get(key);
-  if (ratio === undefined) {
-    const m = measurer();
-    if (m) m.font = key;
-    const ascent = m?.measureText("H").actualBoundingBoxAscent ?? 0;
-    ratio = ascent > 0 ? ascent / MEASURE_PX : ARIAL_CAP_RATIO;
-    capCache.set(key, ratio);
+/** Inline MTEXT color for a run; runs without \C / \c (or by layer / block) use the entity color. */
+function runColor(run: TextRun, base: string, dark: boolean): string {
+  if (run.trueColor !== undefined) {
+    const rgb: Rgb = [(run.trueColor >> 16) & 255, (run.trueColor >> 8) & 255, run.trueColor & 255];
+    // Same contrast rule as ACI colors: pure black / white flip to stay visible.
+    if (dark && rgb.every((c) => c < 8)) return rgbCss([230, 230, 230]);
+    if (!dark && rgb.every((c) => c > 248)) return rgbCss([20, 20, 20]);
+    return rgbCss(rgb);
   }
-  return ratio;
-}
-
-/**
- * MTEXT lines after word wrap to the reference width. Measured once at a fixed font
- * size: metrics scale linearly, so the wrap is the same at every zoom.
- */
-function layoutLines(text: TextEntity): string[] {
-  if (!(text.width > 0) || !(text.height > 0)) return text.lines;
-  const cached = wrapCache.get(text);
-  if (cached) return cached;
-  const m = measurer();
-  if (!m) return text.lines;
-  m.font = cssFont(text, MEASURE_PX);
-  // Glyphs are stretched by the width factor, so less unscaled text fits per line.
-  const limit = ((text.width / text.height) * capRatio(text) * MEASURE_PX) / text.widthFactor;
-  const out: string[] = [];
-  for (const paragraph of text.lines) {
-    let line = "";
-    for (const word of paragraph.split(" ")) {
-      const next = line ? `${line} ${word}` : word;
-      if (line && m.measureText(next).width > limit) {
-        out.push(line);
-        line = word;
-      } else {
-        line = next;
-      }
-    }
-    out.push(line);
-  }
-  wrapCache.set(text, out);
-  return out;
-}
-
-function drawText(ctx: CanvasRenderingContext2D, text: TextEntity, cam: CameraState, w: number, h: number, color: string) {
-  const cap = text.height * cam.zoom;
-  if (cap < MIN_CAP_PX) return;
-  const lines = layoutLines(text);
-  const fontPx = cap / capRatio(text);
-  const gap = text.lineSpacing * cam.zoom;
-  const p = worldToScreen(text.x, text.y, cam, w, h);
-  let longest = 0;
-  for (const line of lines) longest = Math.max(longest, line.length);
-  const reach = Math.max(longest * fontPx * 0.7 * text.widthFactor, lines.length * gap) + fontPx;
-  if (p.x < -reach || p.y < -reach || p.x > w + reach || p.y > h + reach) return;
-
-  // Baseline of the first line, downward from the anchor in text space.
-  const last = (lines.length - 1) * gap;
-  const first =
-    text.valign === "top"
-      ? cap
-      : text.valign === "middle"
-        ? (cap - last) / 2
-        : text.valign === "bottom"
-          ? -last - fontPx * DESCENT_RATIO
-          : 0;
-
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate((-text.rotation * Math.PI) / 180);
-  // Width factor stretches glyphs horizontally; oblique slants their tops right (screen y points down).
-  ctx.transform(text.widthFactor, 0, -Math.tan((text.oblique * Math.PI) / 180), 1, 0, 0);
-  ctx.font = cssFont(text, fontPx);
-  ctx.fillStyle = color;
-  ctx.textAlign = text.align;
-  ctx.textBaseline = "alphabetic";
-  for (let i = 0; i < lines.length; i += 1) ctx.fillText(lines[i], 0, first + i * gap);
-  ctx.restore();
+  if (run.color !== undefined && run.color !== 0 && run.color !== 256) return rgbCss(displayRgb(run.color, dark));
+  return base;
 }
 
 function sameSegment(a: SegmentHit | null, b: SegmentHit | null): boolean {
@@ -287,7 +200,8 @@ export function ViewerCanvas({
 
     for (const text of drawing.texts) {
       if (visibility[text.layer] === false) continue;
-      drawText(ctx, text, cam, w, h, rgbCss(displayRgb(text.color, dark)));
+      const base = rgbCss(displayRgb(text.color, dark));
+      drawText(ctx, text, cam, w, h, (run: TextRun) => runColor(run, base, dark));
     }
 
     const sel = forExport ? null : selectedRef.current;

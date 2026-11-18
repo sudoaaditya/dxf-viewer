@@ -43,9 +43,23 @@ const TTF: Record<string, [family: string, bold?: boolean, italic?: boolean]> = 
 const FLAG_ITALIC = 0x1000000;
 const FLAG_BOLD = 0x2000000;
 
-function cssFamily(family: string): string {
+export function cssFamily(family: string): string {
   if (!family || /^arial$/i.test(family)) return FALLBACK;
   return `"${family.replace(/"/g, "")}", ${FALLBACK}`;
+}
+
+/**
+ * Font from an inline MTEXT code. `\f` names a TrueType family ("Arial|b1|i0|c0|p34");
+ * `\F` names a font file, usually SHX ("romans.shx|c0"). Flags b/i set bold and italic.
+ */
+export function inlineFont(arg: string, isFile: boolean): { fontFamily: string; bold?: boolean; italic?: boolean } {
+  const [name, ...flags] = arg.split("|");
+  const flag = (key: string) => {
+    const f = flags.find((part) => part.startsWith(key));
+    return f === undefined ? undefined : f.slice(1) === "1";
+  };
+  const fontFamily = isFile ? styleFont(name, "", 0, 1, 0).fontFamily : cssFamily(name.trim());
+  return { fontFamily, bold: flag("b"), italic: flag("i") };
 }
 
 /**

@@ -19,9 +19,32 @@ export type LayerGeometry = {
   fillCount: number;
 };
 
+/** A span of MTEXT with inline formatting; unset fields inherit from the entity. */
+export type TextRun = {
+  text: string;
+  /** Height relative to the entity height (\H). */
+  scale?: number;
+  /** CSS font-family list (\f, \F). */
+  fontFamily?: string;
+  bold?: boolean;
+  italic?: boolean;
+  /** ACI color (\C); 0 and 256 mean by block / by layer. */
+  color?: number;
+  /** True color as 0xRRGGBB (\c). */
+  trueColor?: number;
+  widthFactor?: number;
+  /** Slant in degrees (\Q). */
+  oblique?: number;
+  underline?: boolean;
+  overline?: boolean;
+  strike?: boolean;
+};
+
 export type TextLayout = {
   /** One entry per MTEXT paragraph; word wrap to `width` happens at draw time. */
   lines: string[];
+  /** Formatted spans per paragraph, only when MTEXT has inline formatting; same text as `lines`. */
+  runs?: TextRun[][];
   /** Horizontal position of each line relative to the anchor. */
   align: "left" | "center" | "right";
   /** Which part of the text block sits on the anchor. */
