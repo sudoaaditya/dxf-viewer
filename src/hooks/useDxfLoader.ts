@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import { generateSampleDxf } from "../lib/sampleDxf";
 import { MAX_FILE_BYTES, MAX_FILE_MB } from "../types/dxf";
 import type { ParsedDrawing, WorkerRequest, WorkerResponse } from "../types/dxf";
+// Inlined into the main bundle: a separate worker file 404s in tabs opened before a new deploy.
+import ParseWorker from "../workers/parseDxf.worker.ts?worker&inline";
 
 export type LoadPhase =
   | { status: "idle" }
@@ -55,9 +57,7 @@ export function useDxfLoader() {
   const loadBuffer = useCallback(async (buffer: ArrayBuffer, fileName: string, fileBytes: number, requestId: number) => {
     terminateWorker();
 
-    const worker = new Worker(new URL("../workers/parseDxf.worker.ts", import.meta.url), {
-      type: "module",
-    });
+    const worker = new ParseWorker();
     workerRef.current = worker;
 
     await new Promise<void>((resolve, reject) => {
@@ -82,7 +82,12 @@ export function useDxfLoader() {
         resolve();
       };
       worker.onerror = (event) => {
-        reject(new Error(event.message || "Worker failed while parsing the DXF file."));
+        // No message means the worker never started (blocked or failed to load), not a parse error.
+        reject(
+          new Error(
+            event.message || "The DXF parser could not start. Reload the page and try again.",
+          ),
+        );
       };
 
       const payload: WorkerRequest = { type: "parse", buffer, fileName, fileBytes };

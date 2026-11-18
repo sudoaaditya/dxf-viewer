@@ -17,7 +17,7 @@ Privacy and large-file performance are the product. Do not add a server-side upl
 | Piece | Choice | Why |
 | --- | --- | --- |
 | UI | React 18 | SPA |
-| Build | Vite 5, `worker.format: "es"` | Module workers |
+| Build | Vite 5, `worker.format: "es"`, parser worker imported with `?worker&inline` | Worker ships inside the main bundle, so tabs opened before a deploy can still parse (a separate worker file 404s once Vercel serves the new build) |
 | Render | Custom WebGL (not Three.js) | Few draw calls, small bundle |
 | Parse | Custom scanner in a Web Worker | Avoid a huge entity object graph |
 | Hosting | Vercel static (`vercel.json`) | `npm run build` → `dist` |
