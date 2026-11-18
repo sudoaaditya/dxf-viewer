@@ -14,14 +14,39 @@ const SNAP_PX = 12;
 const HIGHLIGHT = "#4ea1ff";
 const MEASURE = "#f0a202";
 
-/** AutoCAD text height is cap height; Arial's cap height is 0.716 of its em size. */
-const CAP_RATIO = 0.716;
+/** AutoCAD text height is cap height. Arial's cap height is 0.716 em; other fonts are measured. */
+const ARIAL_CAP_RATIO = 0.716;
 const DESCENT_RATIO = 0.21;
-const TEXT_FONT = "Arial, Helvetica, sans-serif";
 const MIN_CAP_PX = 4;
+const MEASURE_PX = 100;
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 const wrapCache = new WeakMap<TextEntity, string[]>();
+const capCache = new Map<string, number>();
+
+function measurer(): CanvasRenderingContext2D | null {
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  return measureCtx;
+}
+
+/** CSS font shorthand for a text entity at `px` size. */
+function cssFont(text: TextEntity, px: number): string {
+  return `${text.italic ? "italic " : ""}${text.bold ? "bold " : ""}${px}px ${text.fontFamily}`;
+}
+
+/** Cap height / em for the entity's font, so `height` maps to capital-letter height in any font. */
+function capRatio(text: TextEntity): number {
+  const key = cssFont(text, MEASURE_PX);
+  let ratio = capCache.get(key);
+  if (ratio === undefined) {
+    const m = measurer();
+    if (m) m.font = key;
+    const ascent = m?.measureText("H").actualBoundingBoxAscent ?? 0;
+    ratio = ascent > 0 ? ascent / MEASURE_PX : ARIAL_CAP_RATIO;
+    capCache.set(key, ratio);
+  }
+  return ratio;
+}
 
 /**
  * MTEXT lines after word wrap to the reference width. Measured once at a fixed font
@@ -31,17 +56,17 @@ function layoutLines(text: TextEntity): string[] {
   if (!(text.width > 0) || !(text.height > 0)) return text.lines;
   const cached = wrapCache.get(text);
   if (cached) return cached;
-  measureCtx ??= document.createElement("canvas").getContext("2d");
-  if (!measureCtx) return text.lines;
-  const ref = 100;
-  measureCtx.font = `${ref}px ${TEXT_FONT}`;
-  const limit = (text.width / text.height) * CAP_RATIO * ref;
+  const m = measurer();
+  if (!m) return text.lines;
+  m.font = cssFont(text, MEASURE_PX);
+  // Glyphs are stretched by the width factor, so less unscaled text fits per line.
+  const limit = ((text.width / text.height) * capRatio(text) * MEASURE_PX) / text.widthFactor;
   const out: string[] = [];
   for (const paragraph of text.lines) {
     let line = "";
     for (const word of paragraph.split(" ")) {
       const next = line ? `${line} ${word}` : word;
-      if (line && measureCtx.measureText(next).width > limit) {
+      if (line && m.measureText(next).width > limit) {
         out.push(line);
         line = word;
       } else {
@@ -58,12 +83,12 @@ function drawText(ctx: CanvasRenderingContext2D, text: TextEntity, cam: CameraSt
   const cap = text.height * cam.zoom;
   if (cap < MIN_CAP_PX) return;
   const lines = layoutLines(text);
-  const fontPx = cap / CAP_RATIO;
+  const fontPx = cap / capRatio(text);
   const gap = text.lineSpacing * cam.zoom;
   const p = worldToScreen(text.x, text.y, cam, w, h);
   let longest = 0;
   for (const line of lines) longest = Math.max(longest, line.length);
-  const reach = Math.max(longest * fontPx * 0.7, lines.length * gap) + fontPx;
+  const reach = Math.max(longest * fontPx * 0.7 * text.widthFactor, lines.length * gap) + fontPx;
   if (p.x < -reach || p.y < -reach || p.x > w + reach || p.y > h + reach) return;
 
   // Baseline of the first line, downward from the anchor in text space.
@@ -80,7 +105,9 @@ function drawText(ctx: CanvasRenderingContext2D, text: TextEntity, cam: CameraSt
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate((-text.rotation * Math.PI) / 180);
-  ctx.font = `${fontPx}px ${TEXT_FONT}`;
+  // Width factor stretches glyphs horizontally; oblique slants their tops right (screen y points down).
+  ctx.transform(text.widthFactor, 0, -Math.tan((text.oblique * Math.PI) / 180), 1, 0, 0);
+  ctx.font = cssFont(text, fontPx);
   ctx.fillStyle = color;
   ctx.textAlign = text.align;
   ctx.textBaseline = "alphabetic";
@@ -90,23 +117,6 @@ function drawText(ctx: CanvasRenderingContext2D, text: TextEntity, cam: CameraSt
 
 function sameSegment(a: SegmentHit | null, b: SegmentHit | null): boolean {
   return a === b || (!!a && !!b && a.layer === b.layer && a.segment === b.segment);
-}
-
-/** macOS reports mouse-wheel notches as multiples of this (same detector as Mapbox GL). */
-const MAC_WHEEL_STEP = 4.000244140625;
-
-/**
- * Two-finger touchpad scrolls arrive as pixel-mode wheel events without ctrlKey
- * (pinch sets ctrlKey). Notched mouse wheels send one axis in fixed steps: line mode,
- * multiples of MAC_WHEEL_STEP on macOS, or large integers (100, 120, 125…) elsewhere.
- * Touchpads send fractional or small deltas, often with a horizontal component.
- */
-function isTouchpadScroll(event: WheelEvent): boolean {
-  if (event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return false;
-  if (event.deltaX !== 0) return true;
-  const dy = Math.abs(event.deltaY);
-  if (dy === 0 || dy % MAC_WHEEL_STEP === 0) return false;
-  return !Number.isInteger(dy) || dy < 50;
 }
 
 function strokeSegment(
@@ -440,7 +450,6 @@ export function ViewerCanvas({
     let moved = false;
     let lastX = 0;
     let lastY = 0;
-    let touchpadPanUntil = 0;
     let pointer: { sx: number; sy: number; free: boolean } | null = null;
 
     const pointFromEvent = (event: PointerEvent) => {
@@ -519,31 +528,24 @@ export function ViewerCanvas({
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = wrap.getBoundingClientRect();
-      const cam = cameraRef.current;
-      let next: CameraState;
-      // Latch pan for the rest of a gesture so momentum events cannot flip to zoom.
-      if (!event.ctrlKey && (event.timeStamp < touchpadPanUntil || isTouchpadScroll(event))) {
-        touchpadPanUntil = event.timeStamp + 200;
-        next = { ...cam, x: cam.x + event.deltaX / cam.zoom, y: cam.y - event.deltaY / cam.zoom };
-      } else {
-        const limits = zoomLimits(drawing.bounds, rect.width, rect.height);
-        const deltaY =
-          event.deltaMode === WheelEvent.DOM_DELTA_LINE
-            ? event.deltaY * 16
-            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-              ? event.deltaY * rect.height
-              : event.deltaY;
-        next = zoomAt(
-          cam,
-          event.clientX - rect.left,
-          event.clientY - rect.top,
-          Math.exp(-deltaY * 0.0015),
-          rect.width,
-          rect.height,
-          limits.min,
-          limits.max,
-        );
-      }
+      // Mouse wheel, two-finger scroll and pinch (ctrlKey) all zoom toward the cursor; panning is drag-only.
+      const limits = zoomLimits(drawing.bounds, rect.width, rect.height);
+      const deltaY =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? event.deltaY * 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? event.deltaY * rect.height
+            : event.deltaY;
+      const next = zoomAt(
+        cameraRef.current,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        Math.exp(-deltaY * 0.0015),
+        rect.width,
+        rect.height,
+        limits.min,
+        limits.max,
+      );
       cameraRef.current = next;
       onCameraChange(next);
       inspect(next);

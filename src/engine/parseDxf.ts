@@ -5,9 +5,11 @@ import type {
   ParseProgress,
   ParsedDrawing,
   TextEntity,
+  TextFont,
   TextLayout,
 } from "../types/dxf";
 import { decodeText, parseMtext } from "./mtext";
+import { DEFAULT_FONT, styleFont } from "./textStyle";
 import {
   ByteBag,
   FloatBag,
@@ -92,7 +94,8 @@ type RawEntity =
       y: number;
       height: number;
       rotation: number;
-    } & TextLayout);
+    } & TextLayout &
+      TextFont);
 
 type BlockDef = {
   name: string;
@@ -194,6 +197,9 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
   layers.set("0", { name: "0", color: 7, frozen: false, off: false });
 
   const blocks = new Map<string, BlockDef>();
+  // Text styles by upper-cased name (DXF style names are case-insensitive).
+  const styles = new Map<string, TextFont>();
+  const textStyle = () => styles.get(str(groups, 7, "STANDARD").toUpperCase()) ?? styles.get("STANDARD") ?? DEFAULT_FONT;
   const modelEntities: RawEntity[] = [];
   const typeCounts: Record<string, number> = {};
   let skipped = 0;
@@ -435,6 +441,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
         const aligned = (h !== 0 || v !== 0) && groups.has(11);
         let x = aligned ? num(groups, 11) : num(groups, 10);
         let y = aligned ? num(groups, 21) : num(groups, 20);
+        const style = textStyle();
         if (aligned && (h === 3 || h === 5)) {
           // Aligned / fit: text spans 10 → 11; draw centred between them.
           x = (num(groups, 10) + x) / 2;
@@ -448,6 +455,10 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           y,
           height,
           rotation: num(groups, 50),
+          ...style,
+          // TEXT carries its own width factor (41) and slant (51) when they differ from the style.
+          widthFactor: groups.has(41) && num(groups, 41) > 0 ? num(groups, 41) : style.widthFactor,
+          oblique: groups.has(51) ? num(groups, 51) : style.oblique,
           lines: [decodeText(str(groups, type === "ATTDEF" ? 2 : 1))],
           align: h === 0 ? "left" : h === 2 ? "right" : "center",
           valign: h === 4 || v === 2 ? "middle" : v === 1 ? "bottom" : v === 3 ? "top" : "baseline",
@@ -472,6 +483,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           y: num(groups, 20),
           height,
           rotation,
+          ...textStyle(),
           lines: parseMtext(ctx.mtextChunks + str(groups, 1)),
           align: MTEXT_ALIGN[attach % 3],
           valign: MTEXT_VALIGN[Math.floor(attach / 3)],
@@ -623,6 +635,15 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           frozen: (flags & 1) === 1,
           off: color < 0,
         });
+      } else if (section === "TABLES" && table === "STYLE" && entityType === "STYLE") {
+        const name = str(groups, 2);
+        // Flag bit 1 marks a shape file entry rather than a text style.
+        if (name && (Math.trunc(num(groups, 70)) & 1) === 0) {
+          styles.set(
+            name.toUpperCase(),
+            styleFont(str(groups, 3), str(groups, 1000), Math.trunc(num(groups, 1071)), num(groups, 41, 1), num(groups, 50)),
+          );
+        }
       }
     }
 
@@ -709,7 +730,7 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
       }
     }
 
-    if (section === "ENTITIES" || section === "BLOCKS" || (section === "TABLES" && table === "LAYER")) {
+    if (section === "ENTITIES" || section === "BLOCKS" || (section === "TABLES" && (table === "LAYER" || table === "STYLE"))) {
       pushGroup(code, raw);
     }
 
@@ -844,6 +865,11 @@ export function parseDxf(text: string, fileName: string, fileBytes: number, onPr
           y,
           height: ent.height * scale,
           rotation: rot,
+          fontFamily: ent.fontFamily,
+          bold: ent.bold,
+          italic: ent.italic,
+          widthFactor: ent.widthFactor,
+          oblique: ent.oblique,
           lines: ent.lines,
           align: ent.align,
           valign: ent.valign,

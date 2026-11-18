@@ -17,7 +17,7 @@ export function StatusBar({ drawing, units, world, zoom, measure }: StatusBarPro
         ? "Click a second point · Alt disables snap"
         : measure.mode === "waiting"
           ? "Click a start point · snaps to lines"
-          : "Drag or two-finger swipe to pan · pinch or wheel to zoom";
+          : "Drag to pan · scroll or pinch to zoom";
 
   return (
     <footer className="status-bar">

@@ -32,7 +32,18 @@ export type TextLayout = {
   width: number;
 };
 
-export type TextEntity = TextLayout & {
+export type TextFont = {
+  /** CSS font-family list: the text style's font first, Arial as fallback. */
+  fontFamily: string;
+  bold: boolean;
+  italic: boolean;
+  /** Horizontal glyph scale (STYLE 41, overridden by TEXT 41). */
+  widthFactor: number;
+  /** Slant in degrees (STYLE 50, overridden by TEXT 51). */
+  oblique: number;
+};
+
+export type TextEntity = TextLayout & TextFont & {
   x: number;
   y: number;
   /** Cap height in world units (AutoCAD's text height). */
